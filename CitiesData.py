@@ -8,9 +8,10 @@ import numpy as np
 
 import os
 
+
 # %%
 class CitiesData(Dataset):
-    def __init__(self, dataParentFolder: str, dataIdxs: list, transform = None):
+    def __init__(self, dataParentFolder: str, dataIdxs: list, transform = None, batch_size=128):
         self.dataParentFolder = dataParentFolder
         self.transform = transform
 
