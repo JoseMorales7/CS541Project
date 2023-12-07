@@ -5,7 +5,7 @@ from torch.utils.data import Dataset, DataLoader
 from skimage import io
 
 import numpy as np
-
+import torch
 import os
 
 
@@ -32,6 +32,7 @@ class CitiesData(Dataset):
         imagePath = self.imagePaths[idx]
         pathSplits = imagePath.split("/")
         city = pathSplits[2]
+        city = self.city_to_vector(city)
         longitude, latitude = pathSplits[3].split(",")
         latitude = latitude.split(".jpg")[0]
 
@@ -40,6 +41,31 @@ class CitiesData(Dataset):
             image = self.transform(image)
     
         return image, city, float(longitude), float(latitude)
+    
+    def city_to_vector(self, city):
+        output = np.zeros(10)
+        for i in range(len(city)):
+            if city == 'Atlanta':
+                output[0] = 1
+            elif city == 'Austin':
+                output[1] = 1
+            elif city == 'Boston':
+                output[2] = 1
+            elif city == 'Chicago':
+                output[3] = 1
+            elif city == 'LosAngeles':
+                output[4] = 1
+            elif city == 'Miami':
+                output[5] = 1
+            elif city == 'NewYork':
+                output[6] = 1
+            elif city == 'Phoenix':
+                output[7] = 1
+            elif city == 'SanFrancisco':
+                output[8] = 1
+            elif city == 'Seattle':
+                output[9] = 1
+        return torch.tensor(output)
 
 # %%
 def getCitiesDataLoader(dataParentFolder: str, batchSize: int = 128, transforms = None):
