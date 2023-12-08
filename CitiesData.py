@@ -7,6 +7,8 @@ from skimage import io
 import numpy as np
 import torch
 import os
+from PIL import Image, ImageOps, ImageFilter
+import random
 
 
 # %%
@@ -99,4 +101,139 @@ def getCitiesDataLoader(dataParentFolder: str, batchSize: int = 128, transforms 
     testDataLoader = DataLoader(testData, batch_size=batchSize, shuffle=True)
 
     return trainDataLoader, testDataLoader
+
+def getBalancedCitiesDataLoader(dataParentFolder: str, augmentedParentFolder: str, batchSize: int = 128, transforms = None, balanced_size=200000):
+    # Generate a dataset of 10k images per class - 100k images total
+    class_balanced_size = balanced_size / 10
+    imagePaths = []
+    for city in os.listdir(dataParentFolder):
+        path = os.path.join(dataParentFolder, city)
+        city_size = len(os.listdir(path))
+        if city_size >= class_balanced_size:
+            # Chop Data
+            for i in range(class_balanced_size):
+                imageFile = os.listdir(path)[i]
+                imagePaths.extend(os.path.join(path, imageFile).replace("\\", "/"))
+        else:
+            # First add original data
+            for i in range(city_size):
+                imageFile = os.listdir(path)[i]
+                imagePaths.extend(os.path.join(path, imageFile).replace("\\", "/"))    
+
+            # Generate new data
+            augmented_path = os.path.join(augmentedParentFolder, city)
+            if len(os.listdir(augmented_path)) < class_balanced_size - city_size:
+                data_generator(dataparentFolder, augmentedParentFolder, city, class_balanced_size - city_size)
+            
+            for i in range(len(class_balanced_size - city_size)):
+                imageFile = os.listdir(augmented_path)[i]
+                imagePaths.extend(os.path.join(augmented_path, imageFile).replace("\\", "/"))
+
+    for i in range(len(10)):
+        start = i * class_balanced_size
+        stop = (i+1) * class_balanced_size
+        
+        num_train = int(np.round((stop - start) / 100 * 90))
+        # Shuffle all training stimulus images
+        idxs = np.arange(start, stop)
+
+        np.random.shuffle(idxs)
+
+        # Assign 90% of the shuffled stimulus images for each city to the training partition,
+        # and 10% to the test partition
+        trainIdxs.extend(idxs[:num_train])
+        testIdxs.extend(idxs[num_train:])
+
+    train_imagePaths = np.array(imagePaths)[trainIdxs]
+    test_imagePaths = np.array(imagePaths)[testIdxs]
+
+    trainData = AugmentedCitiesData(dataParentFolder, augmentedParentFolder, train_imagePaths, transform=transforms, balanced_size=balanced_size)
+    testData = AugmentedCitiesData(dataParentFolder, augmentedParentFolder, test_imagePaths, transform=transforms, balanced_size=balanced_size)
+
+    trainDataLoader = DataLoader(trainData, batch_size=batchSize, shuffle=True)
+    testDataLoader = DataLoader(testData, batch_size=batchSize, shuffle=True)
+
+    return trainDataLoader, testDataLoader
+
+        
+class AugmentedCitiesData(Dataset):
+    def __init__(self, dataParentFolder: str, augmentedParentFolder: str, imagePaths, transform = None, batch_size=128, balanced_size=200000):
+        self.dataParentFolder = dataParentFolder
+        self.augmentedParentFolder = augmentedParentFolder
+        self.transform = transform
+        self.imagePaths = imagePaths
+        
+
+    def __len__(self):
+        return len(self.imagePaths)
+
+    def __getitem__(self, idx: int):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        imagePath = self.imagePaths[idx]
+        pathSplits = imagePath.split("/")
+        city = pathSplits[2]
+        city = self.city_to_vector(city)
+        longitude, latitude = pathSplits[3].split(",")
+        latitude = latitude.split(".jpg")[0]
+
+        image = io.imread(imagePath)
+        if self.transform:
+            image = self.transform(image)
+        return image, city, float(longitude), float(latitude)
+    
+    def city_to_vector(self, city):
+        output = np.zeros(10)
+        for i in range(len(city)):
+            if city == 'Atlanta':
+                output[0] = 1
+            elif city == 'Austin':
+                output[1] = 1
+            elif city == 'Boston':
+                output[2] = 1
+            elif city == 'Chicago':
+                output[3] = 1
+            elif city == 'LosAngeles':
+                output[4] = 1
+            elif city == 'Miami':
+                output[5] = 1
+            elif city == 'NewYork':
+                output[6] = 1
+            elif city == 'Phoenix':
+                output[7] = 1
+            elif city == 'SanFrancisco':
+                output[8] = 1
+            elif city == 'Seattle':
+                output[9] = 1
+        return torch.tensor(output)
+    
+def data_generator(original_data_folder, augmented_data_folder, city, amount):
+    
+    path = os.path.join(original_data_folder, city)
+    count = 0
+    while count < amount:
+        for imageFile in os.listdir(path):
+            imagePath = os.path.join(path, imageFile).replace("\\", "/")
+
+            # Transform image - slight rotations and 
+            image = Image.open(imagePath)
+
+            rand = random.randint(0,9)
+            if rand <= 2:
+                rand2= random.randint(-3,3)
+                image = image.rotate(rand2)
+            elif rand <= 5:
+                image = ImageOps.grayscale(image)
+            else:
+                image = image.filter(ImageFilter.GaussianBlur(1))
+
+
+            #Write Image to AugmentedData
+            image.save(os.path.join(os.path.join(augmented_data_folder, city), str(count) + ".0,1.0.jpg").replace("\\", "/"))
+
+            count += 1
+            if count >= amount:
+                break
+    
     
