@@ -104,8 +104,9 @@ def getCitiesDataLoader(dataParentFolder: str, batchSize: int = 128, transforms 
 
 def getBalancedCitiesDataLoader(dataParentFolder: str, augmentedParentFolder: str, batchSize: int = 128, transforms = None, balanced_size=200000):
     # Generate a dataset of 10k images per class - 100k images total
-    class_balanced_size = balanced_size / 10
-    imagePaths = []
+    class_balanced_size = int(balanced_size / 10)
+    imagePaths = np.empty(balanced_size, dtype='object')
+    count = 0
     for city in os.listdir(dataParentFolder):
         path = os.path.join(dataParentFolder, city)
         city_size = len(os.listdir(path))
@@ -113,23 +114,26 @@ def getBalancedCitiesDataLoader(dataParentFolder: str, augmentedParentFolder: st
             # Chop Data
             for i in range(class_balanced_size):
                 imageFile = os.listdir(path)[i]
-                imagePaths.extend(os.path.join(path, imageFile).replace("\\", "/"))
+                imagePaths[count] = os.path.join(path, imageFile).replace("\\", "/")
+                count += 1
         else:
             # First add original data
             for i in range(city_size):
                 imageFile = os.listdir(path)[i]
-                imagePaths.extend(os.path.join(path, imageFile).replace("\\", "/"))    
+                imagePaths[count] = os.path.join(path, imageFile).replace("\\", "/")
+                count += 1 
 
             # Generate new data
             augmented_path = os.path.join(augmentedParentFolder, city)
             if len(os.listdir(augmented_path)) < class_balanced_size - city_size:
-                data_generator(dataparentFolder, augmentedParentFolder, city, class_balanced_size - city_size)
+                data_generator(dataParentFolder, augmentedParentFolder, city, class_balanced_size - city_size)
             
-            for i in range(len(class_balanced_size - city_size)):
+            for i in range(class_balanced_size - city_size):
                 imageFile = os.listdir(augmented_path)[i]
-                imagePaths.extend(os.path.join(augmented_path, imageFile).replace("\\", "/"))
+                imagePaths[count] = os.path.join(augmented_path, imageFile).replace("\\", "/")
+                count += 1
 
-    for i in range(len(10)):
+    for i in range(10):
         start = i * class_balanced_size
         stop = (i+1) * class_balanced_size
         
