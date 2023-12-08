@@ -105,21 +105,28 @@ def getCitiesDataLoader(dataParentFolder: str, batchSize: int = 128, transforms 
 def getBalancedCitiesDataLoader(dataParentFolder: str, augmentedParentFolder: str, batchSize: int = 128, transforms = None, balanced_size=200000):
     # Generate a dataset of 10k images per class - 100k images total
     class_balanced_size = int(balanced_size / 10)
+    start = time.time()
     imagePaths = np.empty(balanced_size, dtype='object')
     count = 0
     for city in os.listdir(dataParentFolder):
         path = os.path.join(dataParentFolder, city)
         city_size = len(os.listdir(path))
         if city_size >= class_balanced_size:
+            print("here")
             # Chop Data
+            path_list = os.listdir(path)
             for i in range(class_balanced_size):
-                imageFile = os.listdir(path)[i]
+                imageFile = path_list[i]
                 imagePaths[count] = os.path.join(path, imageFile).replace("\\", "/")
                 count += 1
+            end = time.time()
+            print(end-start)
+            print(class_balanced_size)
         else:
             # First add original data
+            path_list = os.listdir(path)
             for i in range(city_size):
-                imageFile = os.listdir(path)[i]
+                imageFile = path_list[i]
                 imagePaths[count] = os.path.join(path, imageFile).replace("\\", "/")
                 count += 1 
 
@@ -127,9 +134,10 @@ def getBalancedCitiesDataLoader(dataParentFolder: str, augmentedParentFolder: st
             augmented_path = os.path.join(augmentedParentFolder, city)
             if len(os.listdir(augmented_path)) < class_balanced_size - city_size:
                 data_generator(dataParentFolder, augmentedParentFolder, city, class_balanced_size - city_size)
-            
+
+            augmented_path_list = os.listdir(augmented_path)
             for i in range(class_balanced_size - city_size):
-                imageFile = os.listdir(augmented_path)[i]
+                imageFile = augmented_path_list[i]
                 imagePaths[count] = os.path.join(augmented_path, imageFile).replace("\\", "/")
                 count += 1
 
