@@ -9,6 +9,8 @@ import torch
 import os
 from PIL import Image, ImageOps, ImageFilter
 import random
+import time
+
 
 
 # %%
@@ -32,12 +34,11 @@ class CitiesData(Dataset):
             idx = idx.tolist()
 
         imagePath = self.imagePaths[idx]
-        pathSplits = imagePath.split("/")
-        city = pathSplits[2]
-        city = self.city_to_vector(city)
-        longitude, latitude = pathSplits[3].split(",")
+        pathSplits = imagePath.split(self.dataParentFolder)[1].split("/")
+        city = pathSplits[0]
+        city =self.city_to_vector(city)
+        longitude, latitude = pathSplits[1].split(",")
         latitude = latitude.split(".jpg")[0]
-
         image = io.imread(imagePath)
         if self.transform:
             image = self.transform(image)
@@ -69,6 +70,7 @@ class CitiesData(Dataset):
                 output[9] = 1
         return torch.tensor(output)
 
+
 # %%
 def getCitiesDataLoader(dataParentFolder: str, batchSize: int = 128, transforms = None):
     cityIdxs = [0]
@@ -78,12 +80,18 @@ def getCitiesDataLoader(dataParentFolder: str, batchSize: int = 128, transforms 
         cityIdxs.append(totalPoints)
 
     trainIdxs = []
+    validIdxs = []
     testIdxs = []
     for i in range(len(cityIdxs) - 1):
         start = cityIdxs[i]
         stop = cityIdxs[i + 1]
 
         num_train = int(np.round((stop - start) / 100 * 90))
+        num_valid = int(round(num_train * 0.025))
+
+        num_train -= num_valid
+        num_valid += num_train
+
         # Shuffle all training stimulus images
         idxs = np.arange(start, stop)
 
@@ -92,16 +100,21 @@ def getCitiesDataLoader(dataParentFolder: str, batchSize: int = 128, transforms 
         # Assign 90% of the shuffled stimulus images for each city to the training partition,
         # and 10% to the test partition
         trainIdxs.extend(idxs[:num_train])
-        testIdxs.extend(idxs[num_train:])
+        validIdxs.extend(idxs[num_train:num_valid])
+        testIdxs.extend(idxs[num_valid:])
 
     trainData = CitiesData(dataParentFolder, trainIdxs, transform=transforms)
+    validData = CitiesData(dataParentFolder, validIdxs, transform=transforms)
     testData = CitiesData(dataParentFolder, testIdxs, transform=transforms)
 
     trainDataLoader = DataLoader(trainData, batch_size=batchSize, shuffle=True)
+    validDataLoader = DataLoader(validData, batch_size=batchSize, shuffle=True)
     testDataLoader = DataLoader(testData, batch_size=batchSize, shuffle=True)
 
-    return trainDataLoader, testDataLoader
+    return trainDataLoader, validDataLoader, testDataLoader
+    
 
+# %%
 def getBalancedCitiesDataLoader(dataParentFolder: str, augmentedParentFolder: str, batchSize: int = 128, transforms = None, balanced_size=200000):
     # Generate a dataset of 10k images per class - 100k images total
     class_balanced_size = int(balanced_size / 10)
@@ -141,11 +154,20 @@ def getBalancedCitiesDataLoader(dataParentFolder: str, augmentedParentFolder: st
                 imagePaths[count] = os.path.join(augmented_path, imageFile).replace("\\", "/")
                 count += 1
 
+    trainIdxs = []
+    validIdxs = []
+    testIdxs = []
+    
     for i in range(10):
         start = i * class_balanced_size
         stop = (i+1) * class_balanced_size
         
         num_train = int(np.round((stop - start) / 100 * 90))
+        num_valid = int(round(num_train * 0.025))
+
+        num_train -= num_valid
+        num_valid += num_train
+
         # Shuffle all training stimulus images
         idxs = np.arange(start, stop)
 
@@ -153,23 +175,28 @@ def getBalancedCitiesDataLoader(dataParentFolder: str, augmentedParentFolder: st
 
         # Assign 90% of the shuffled stimulus images for each city to the training partition,
         # and 10% to the test partition
-        trainIdxs.extend(idxs[:num_train])
-        testIdxs.extend(idxs[num_train:])
+        trainIdxs.extend(idxs[0:num_train])
+        validIdxs.extend(idxs[num_train:num_valid])
+        testIdxs.extend(idxs[num_valid:])
 
     train_imagePaths = np.array(imagePaths)[trainIdxs]
+    valid_imagePaths = np.array(imagePaths)[validIdxs]
     test_imagePaths = np.array(imagePaths)[testIdxs]
 
-    trainData = AugmentedCitiesData(dataParentFolder, augmentedParentFolder, train_imagePaths, transform=transforms, balanced_size=balanced_size)
-    testData = AugmentedCitiesData(dataParentFolder, augmentedParentFolder, test_imagePaths, transform=transforms, balanced_size=balanced_size)
+    trainData = AugmentedCitiesData(dataParentFolder, augmentedParentFolder, train_imagePaths, transform=transforms)
+    validData = AugmentedCitiesData(dataParentFolder, augmentedParentFolder, valid_imagePaths, transform=transforms)
+    testData = AugmentedCitiesData(dataParentFolder, augmentedParentFolder, test_imagePaths, transform=transforms)
 
     trainDataLoader = DataLoader(trainData, batch_size=batchSize, shuffle=True)
+    validDataLoader = DataLoader(validData, batch_size=batchSize, shuffle=True)
     testDataLoader = DataLoader(testData, batch_size=batchSize, shuffle=True)
 
-    return trainDataLoader, testDataLoader
+    return trainDataLoader, validDataLoader, testDataLoader
 
-        
+
+# %%
 class AugmentedCitiesData(Dataset):
-    def __init__(self, dataParentFolder: str, augmentedParentFolder: str, imagePaths, transform = None, batch_size=128, balanced_size=200000):
+    def __init__(self, dataParentFolder: str, augmentedParentFolder: str, imagePaths, transform = None, batch_size=128):
         self.dataParentFolder = dataParentFolder
         self.augmentedParentFolder = augmentedParentFolder
         self.transform = transform
@@ -184,12 +211,11 @@ class AugmentedCitiesData(Dataset):
             idx = idx.tolist()
 
         imagePath = self.imagePaths[idx]
-        pathSplits = imagePath.split("/")
-        city = pathSplits[2]
-        city = self.city_to_vector(city)
-        longitude, latitude = pathSplits[3].split(",")
+        pathSplits = imagePath.split(self.dataParentFolder)[1].split("/")
+        city = pathSplits[0]
+        city =self.city_to_vector(city)
+        longitude, latitude = pathSplits[1].split(",")
         latitude = latitude.split(".jpg")[0]
-
         image = io.imread(imagePath)
         if self.transform:
             image = self.transform(image)
@@ -219,7 +245,8 @@ class AugmentedCitiesData(Dataset):
             elif city == 'Seattle':
                 output[9] = 1
         return torch.tensor(output)
-    
+
+# %%
 def data_generator(original_data_folder, augmented_data_folder, city, amount):
     
     path = os.path.join(original_data_folder, city)
@@ -247,5 +274,5 @@ def data_generator(original_data_folder, augmented_data_folder, city, amount):
             count += 1
             if count >= amount:
                 break
-    
-    
+
+
