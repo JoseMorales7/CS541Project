@@ -211,7 +211,12 @@ class AugmentedCitiesData(Dataset):
             idx = idx.tolist()
 
         imagePath = self.imagePaths[idx]
-        pathSplits = imagePath.split(self.dataParentFolder)[1].split("/")
+        pathSplits = - 1
+        if len(imagePath.split(self.dataParentFolder)) >1:
+            pathSplits = imagePath.split(self.dataParentFolder)[1].split("/")
+        else:
+            pathSplits = imagePath.split(self.augmentedParentFolder)[1].split("/")
+
         city = pathSplits[0]
         city =self.city_to_vector(city)
         longitude, latitude = pathSplits[1].split(",")
@@ -259,11 +264,9 @@ def data_generator(original_data_folder, augmented_data_folder, city, amount):
             image = Image.open(imagePath)
 
             rand = random.randint(0,9)
-            if rand <= 2:
+            if rand <= 5:
                 rand2= random.randint(-3,3)
                 image = image.rotate(rand2)
-            elif rand <= 5:
-                image = ImageOps.grayscale(image)
             else:
                 image = image.filter(ImageFilter.GaussianBlur(1))
 
