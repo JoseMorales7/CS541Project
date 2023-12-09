@@ -2,7 +2,7 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-from skimage import io
+from PIL import Image
 
 import numpy as np
 import torch
@@ -10,6 +10,11 @@ import os
 from PIL import Image, ImageOps, ImageFilter
 import random
 import time
+
+import torchvision
+from torchvision import models
+from torchvision.transforms import transforms
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 
@@ -39,7 +44,7 @@ class CitiesData(Dataset):
         city =self.city_to_vector(city)
         longitude, latitude = pathSplits[1].split(",")
         latitude = latitude.split(".jpg")[0]
-        image = io.imread(imagePath)
+        image = Image.open(imagePath)
         if self.transform:
             image = self.transform(image)
     
@@ -216,7 +221,7 @@ class AugmentedCitiesData(Dataset):
         city =self.city_to_vector(city)
         longitude, latitude = pathSplits[1].split(",")
         latitude = latitude.split(".jpg")[0]
-        image = io.imread(imagePath)
+        image = Image.open(imagePath)
         if self.transform:
             image = self.transform(image)
         return image, city, float(longitude), float(latitude)
@@ -276,3 +281,161 @@ def data_generator(original_data_folder, augmented_data_folder, city, amount):
                 break
 
 
+
+
+
+# The inference transforms are available at ViT_B_16_Weights.IMAGENET1K_V1.transforms and perform the following preprocessing operations: Accepts PIL.Image, batched (B, C, H, W) and single (C, H, W) image torch.Tensor objects. 
+# The images are resized to resize_size=[256] using interpolation=InterpolationMode.BILINEAR, followed by a central crop of crop_size=[224]. 
+# Finally the values are first rescaled to [0.0, 1.0] and then normalized using mean=[0.485, 0.456, 0.406] and std=[0.229, 0.224, 0.225].
+
+#models.ViT_B_16_Weights.IMAGENET1K_V1
+model_name = "Inception"
+model_image_size = 224
+
+# %%
+class CityInception(torch.nn.Module):
+    def __init__(self, numClasses: int, softmax:bool = True):
+        super(CityInception, self).__init__()
+
+        self.inceptionBase = torchvision.models.inception_v3(weights='DEFAULT')
+        self.inceptionBase.fc = torch.nn.Sequential(
+            torch.nn.Linear(2048, 1024),
+            torch.nn.ReLU,
+            torch.nn.Linear(1024, 512),
+            torch.nn.ReLU,
+            torch.nn.Linear(512, 216),
+            torch.nn.ReLU,
+            torch.nn.Linear(216, 10)
+        )
+        for param in list(self.inceptionBase.parameters())[:-1]:
+            param.requires_grad = False
+        # for param in self.inceptionBase.parameters():
+        #     print(param.requires_grad)
+
+        self.softmax = torch.nn.Softmax(dim=-1)
+
+    def forward(self, x):
+        # print(x.shape)
+        logits = self.inceptionBase(x)
+        # print(type(logits))
+        # print(logits)
+        # print(logits.shape)
+        probs = self.softmax(logits.logits)
+
+        return probs
+
+
+
+
+
+
+# %%
+model = CityInception(10).to(device)
+# print(*list(model.children())[:-1])
+
+# %%
+# Loss and optimizer
+criterion = torch.nn.CrossEntropyLoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+# %%
+batch_size = 32
+transform = transforms.Compose([
+    transforms.Resize(342),
+    transforms.CenterCrop(299),
+    transforms.ToTensor(),
+    transforms.Normalize((0.485, 0.456, 0.406),(0.229, 0.224, 0.225))
+])
+trainDataLoader, validDataLoader, testDataLoader = CitiesData.getCitiesDataLoader("./Data/", transforms = transform, batchSize=batch_size)
+
+# %%
+print(len(trainDataLoader))
+print(len(validDataLoader))
+print(len(testDataLoader))
+for i in trainDataLoader:
+    image, cities, _, _ = i
+    print(image.shape)
+    break
+
+# %%
+from fvcore.nn import FlopCountAnalysis
+valid_image = 0
+for i in validDataLoader:
+    valid_image, cities, _, _ = i
+    valid_image = valid_image.to(device)
+    break
+flops = FlopCountAnalysis(model, valid_image)
+print(str(flops.total()) + " flops")
+# Ignore Reds
+
+# %%
+def evaluate_on_data(vit, dataloader):
+    criterion = torch.nn.CrossEntropyLoss()
+    with torch.no_grad():
+        total_loss = 0
+        
+        num_correct = 0.0
+        num_samples = 0.0
+        for data in dataloader:
+            image, city, _, _ = data
+            city = city.to(device)
+            image = image.to(device)
+            outputs = vit(image)
+            loss = criterion(outputs, city)
+            total_loss += loss.item()
+            for i in range(len(city)):
+
+                model_vote = 0
+                answer = 0
+                for j in range(len(outputs[i])):
+                    if outputs[i][j] > outputs[i][model_vote]:
+                        model_vote = j
+                    if city[i][j] == 1:
+                        answer = j
+                
+                if answer == model_vote:
+                    num_correct += 1
+                num_samples += 1
+                    
+                
+                
+    return total_loss / len(dataloader), num_correct / num_samples
+
+# %%
+num_epochs = 10
+count = 0
+valid_loss_array = np.zeros(num_epochs)
+valid_acc_array = np.zeros(num_epochs)
+train_loss_array = np.zeros(num_epochs)
+for epoch in range(num_epochs):
+    start = time.time()
+    temp = 0
+    for data in trainDataLoader:
+        image, city, _, _ = data
+        city = city.to(device)
+        image = image.to(device)
+        optimizer.zero_grad()
+        outputs = model(image)
+        loss = criterion(outputs, city)
+        loss.backward()
+        optimizer.step()
+        end = time.time()
+        count += 1
+        print(str(int(end-start)) + " sec " + str(count * batch_size) + " images " + str(loss.item()) + " loss", end='\x1b\r')
+
+    valid_loss, valid_acc = evaluate_on_data(model, validDataLoader)
+    print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {loss.item():.4f}, Valid Loss: {valid_loss}, Valid ACC: {valid_acc}')
+    valid_loss_array[epoch] = valid_loss
+    train_loss_array[epoch] = loss.item()
+    valid_acc_array[epoch] = valid_acc
+    
+
+# %%
+with open(model_name + '_valid.npy', 'wb') as f:
+    np.save(f, valid_loss_array)
+    
+with open(model_name + '_valid_acc.npy', 'wb') as f:
+    np.save(f, valid_acc_array)
+    
+with open(model_name + '_train.npy', 'wb') as f:
+    np.save(f, train_loss_array)

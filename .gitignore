@@ -1,2 +1,4 @@
 Data/
 AugmentedData/
+.ipynb_checkpoints/
+__pycache__/
