@@ -2,3 +2,6 @@ Data/
 AugmentedData/
 .ipynb_checkpoints/
 __pycache__/
+incepNoWeightServer.py
+incepPretrained.py
+results/inception/inceptionPretrained.pt
