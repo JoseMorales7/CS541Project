@@ -11,7 +11,7 @@ import time
 import torchvision
 from torchvision import models
 from torchvision.transforms import transforms
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 # %%
 
 class CitiesData(Dataset):
@@ -218,27 +218,21 @@ class AugmentedCitiesData(Dataset):
 
 # %%
 def data_generator(original_data_folder, augmented_data_folder, city, amount):
-    
     path = os.path.join(original_data_folder, city)
     count = 0
     while count < amount:
         for imageFile in os.listdir(path):
             imagePath = os.path.join(path, imageFile).replace("\\", "/")
-
             # Transform image - slight rotations and 
             image = Image.open(imagePath)
-
             rand = random.randint(0,9)
             if rand <= 5:
                 rand2= random.randint(-3,3)
                 image = image.rotate(rand2)
             else:
                 image = image.filter(ImageFilter.GaussianBlur(1))
-
-
             #Write Image to AugmentedData
             image.save(os.path.join(os.path.join(augmented_data_folder, city), str(count) + ".0,1.0.jpg").replace("\\", "/"))
-
             count += 1
             if count >= amount:
                 break
@@ -247,7 +241,7 @@ def data_generator(original_data_folder, augmented_data_folder, city, amount):
 # Finally the values are first rescaled to [0.0, 1.0] and then normalized using mean=[0.485, 0.456, 0.406] and std=[0.229, 0.224, 0.225].
 #models.ViT_B_16_Weights.IMAGENET1K_V1
 
-model_name = "Inception_pretrained_balanced"
+model_name = "Inception_from_scratch_balanced"
 model_image_size = 224
 
 
@@ -255,7 +249,7 @@ model_image_size = 224
 class CityInception(torch.nn.Module):
     def __init__(self, numClasses: int, softmax:bool = True):
         super(CityInception, self).__init__()
-        self.inceptionBase = torchvision.models.inception_v3(weights='DEFAULT')
+        self.inceptionBase = torchvision.models.inception_v3(weights=None)
         self.inceptionBase.fc = torch.nn.Sequential(
             torch.nn.Linear(2048, 1024),
             torch.nn.ReLU(),
@@ -295,7 +289,7 @@ transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize((0.485, 0.456, 0.406),(0.229, 0.224, 0.225))
 ])
-trainDataLoader, validDataLoader, testDataLoader = getBalancedCitiesDataLoader("/home/vislab-001/Documents/fmriMQP/data/", "./AugmentedData", transforms = transform, batchSize=batch_size)
+trainDataLoader, validDataLoader, testDataLoader = getBalancedCitiesDataLoader("/home/vislab-001/Documents/fmriMQP/data/", "./AugmentedData/", transforms = transform, batchSize=batch_size)
 # %%
 print(len(trainDataLoader))
 print(len(validDataLoader))
@@ -350,7 +344,7 @@ def evaluate_on_data(vit, dataloader):
 # %%
 
 
-num_epochs = 30
+num_epochs = 50
 count = 0
 valid_loss_array = np.zeros(num_epochs)
 valid_acc_array = np.zeros(num_epochs)
